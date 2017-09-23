@@ -23,6 +23,32 @@ import (
 	"github.com/russross/blackfriday"
 )
 
+const AUTH_REDIRECT_CONTENT = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Authentication Result</title>
+</head>
+<body>
+    <div id="result">
+    </div>
+    <script type="text/javascript">
+    if (window.location.hash == "")
+    {
+        document.getElementById("result").innerHTML = "failed to initialize!"
+    }
+    else
+    {
+        window.location.href = window.location.protocol + "//" + window.location.host + "/success?" + window.location.hash.substr(1);
+    }
+    </script>
+</body>
+</html>
+`
+
 type InitConfig struct {
 	RedirectPort int
 	RedirectPath string
@@ -100,11 +126,9 @@ type PostConfig struct {
 func (c *PostConfig) Parse(args []string) error {
 	flag := flag.NewFlagSet("story post", flag.ExitOnError)
 	flag.StringVar(&c.BlogName, "blog", "", "tistory blog name, ex> {blog}.tistory.com")
-	flag.StringVar(&c.Title, "title", "", "if specified, also change the title")
-	flag.StringVar(&c.File, "content", "", "if specified, update the content")
 	flag.BoolVar(&c.DryRun, "n", false, "actually do nothing")
 	flag.Usage = func() {
-		fmt.Println("story post -blog=[blog id] -title=[title] -file=[markdown file or directory]")
+		fmt.Println("story post -blog=[blog id] [title] [markdown file or directory]")
 		flag.PrintDefaults()
 	}
 
@@ -116,12 +140,12 @@ func (c *PostConfig) Parse(args []string) error {
 		return errors.New("missing blog name")
 	}
 
-	c.File = filepath.ToSlash(flag.Arg(0))
+	c.File = filepath.ToSlash(flag.Arg(1))
 	if _, err := os.Stat(c.File); err != nil {
 		return err
 	}
 
-	c.Title = flag.Arg(1)
+	c.Title = flag.Arg(0)
 	if c.Title == "" {
 		return errors.New("missing title")
 	}
@@ -234,7 +258,7 @@ func (t *TistoryRenderer) Image(out *bytes.Buffer, link []byte, title []byte, al
 	mpWriter.Close()
 
 	// do request
-	resp, err := http.Post("http://www.tistory.com/apis/post/attach", mpWriter.FormDataContentType(), &payloadForm)
+	resp, err := http.Post("https://www.tistory.com/apis/post/attach", mpWriter.FormDataContentType(), &payloadForm)
 	if err != nil {
 		uploadFailed(err)
 		return
@@ -316,14 +340,20 @@ func RunOAuthServer(port int, path string) (*http.Server, chan string) {
 	var server http.Server
 	server.Addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	server.Handler = http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
-		if req.URL.Path[1:] != path {
-			http.NotFound(res, req)
-			return
-		}
+		log.Println("access", req.URL)
+		if req.URL.Path == "/success" {
+			res.WriteHeader(http.StatusOK)
+			res.Write([]byte(`<script> alert('Authentication success'); setTimeout(window.close, 1); </script>`))
+			chanResult <- req.URL.Query().Get("access_token")
 
-		res.WriteHeader(http.StatusOK)
-		res.Write([]byte(`<script> alert('Authentication success'); setTimeout(window.close, 1); </script>`))
-		chanResult <- req.URL.Query().Get("code")
+		} else if req.URL.Path[1:] == path {
+			res.Header().Set("Content-Type", "text/html")
+			res.WriteHeader(http.StatusOK)
+			res.Write([]byte(AUTH_REDIRECT_CONTENT))
+
+		} else {
+			http.NotFound(res, req)
+		}
 	})
 
 	go server.ListenAndServe()
@@ -338,7 +368,7 @@ func Authorize(config *InitConfig) error {
 
 	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/%s", config.RedirectPort, config.RedirectPath)
 	authQuery := url.Values{}
-	authQuery.Add("response_type", "code")
+	authQuery.Add("response_type", "token")
 	authQuery.Add("client_id", config.ClientID)
 	authQuery.Add("redirect_uri", redirectURI)
 
@@ -350,45 +380,13 @@ func Authorize(config *InitConfig) error {
 
 	// wait for access token
 	timer := time.NewTimer(10 * time.Second)
-	var authCode string
 	select {
-	case authCode = <-chanString:
-		log.Println("authorization code is", authCode)
+	case config.AccessToken = <-chanString:
+		log.Println("authorization code is", config.AccessToken)
 	case <-timer.C:
 		return errors.New("OAuth timeout")
 	}
 
-	tokenQuery := url.Values{}
-	tokenQuery.Add("client_id", config.ClientID)
-	tokenQuery.Add("client_secret", config.ClientSecret)
-	tokenQuery.Add("redirect_uri", redirectURI)
-	tokenQuery.Add("code", authCode)
-	tokenQuery.Add("grant_type", "authorization_code")
-	tokenQuery.Add("output", "json")
-
-	tokenAddr := "https://www.tistory.com/oauth/access_token?" + tokenQuery.Encode()
-	log.Println(tokenAddr)
-
-	resp, err := http.Get(tokenAddr)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	var respBuffer bytes.Buffer
-	io.Copy(&respBuffer, resp.Body)
-
-	respBody, err := url.ParseQuery(respBuffer.String())
-	log.Println(respBuffer.String())
-	log.Println(resp.Header)
-	log.Println(respBody)
-	if err != nil {
-		return err
-	} else if respBody.Get("access_token") == "" {
-		return errors.New("failed to fetch access token!")
-	}
-
-	config.AccessToken = respBody.Get("access_token")
 	return config.Save()
 }
 
@@ -397,7 +395,7 @@ func Info(accessToken string) error {
 	query.Add("access_token", accessToken)
 	query.Add("output", "json")
 
-	resp, err := http.Get("http://www.tistory.com/apis/blog/info?" + query.Encode())
+	resp, err := http.Get("https://www.tistory.com/apis/blog/info?" + query.Encode())
 	if err != nil {
 		return err
 	}
@@ -418,7 +416,7 @@ func FindPost(accessToken string, blogName, postID string) (*TistoryPost, error)
 	query.Add("postId", postID)
 	query.Add("output", "json")
 
-	resp, err := http.Get("http://www.tistory.com/apis/post/read?" + query.Encode())
+	resp, err := http.Get("https://www.tistory.com/apis/post/read?" + query.Encode())
 	if err != nil {
 		return nil, err
 	}
