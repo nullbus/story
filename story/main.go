@@ -1,44 +1,12 @@
 package main
 
 import (
-	"errors"
-	"flag"
 	"fmt"
 	"log"
 	"os"
 
 	"github.com/nullbus/story"
 )
-
-type ShowConfig struct {
-	BlogName string
-	PostID   string
-}
-
-func (c *ShowConfig) Parse(args []string) error {
-	flag := flag.NewFlagSet("story show", flag.ExitOnError)
-	flag.StringVar(&c.BlogName, "blog", "", "tistory blog name, ex> {blog}.tistory.com")
-	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "story show -blog=[blog id] [options] postID")
-		flag.PrintDefaults()
-	}
-
-	if err := flag.Parse(args); err != nil {
-		return err
-	}
-
-	if flag.NArg() == 0 {
-		return errors.New("too few arguments")
-	}
-
-	c.PostID = flag.Arg(0)
-
-	if c.BlogName == "" {
-		return errors.New("missing blog name")
-	}
-
-	return nil
-}
 
 func usageAndExit() {
 	write := func(args ...interface{}) { fmt.Fprintln(os.Stderr, args...) }
@@ -120,12 +88,12 @@ func main() {
 			log.Fatalln(err)
 		}
 
-		var config ShowConfig
-		if err := config.Parse(os.Args[2:]); err != nil {
+		var show story.ViewConfig
+		if err := show.Parse(os.Args[2:]); err != nil {
 			log.Fatalln(err)
 		}
 
-		post, err := story.FindPost(baseConfig.AccessToken, config.BlogName, config.PostID)
+		post, err := show.Do(baseConfig.AccessToken)
 		if err != nil {
 			log.Fatalln(err)
 		}

@@ -86,11 +86,41 @@ func parseError(r io.Reader) string {
 	return fmt.Sprintf("code %s: %s", responseBody.Tistory.Status, responseBody.Tistory.ErrorMessage)
 }
 
-func FindPost(accessToken string, blogName, postID string) (*TistoryPost, error) {
+type ViewConfig struct {
+	BlogName string
+	PostID   string
+}
+
+func (c *ViewConfig) Parse(args []string) error {
+	flag := flag.NewFlagSet("story show", flag.ExitOnError)
+	flag.StringVar(&c.BlogName, "blog", "", "tistory blog name, ex> {blog}.tistory.com")
+	flag.Usage = func() {
+		fmt.Fprintln(os.Stderr, "story show -blog=[blog id] [options] postID")
+		flag.PrintDefaults()
+	}
+
+	if err := flag.Parse(args); err != nil {
+		return err
+	}
+
+	if flag.NArg() == 0 {
+		return errors.New("too few arguments")
+	}
+
+	c.PostID = flag.Arg(0)
+
+	if c.BlogName == "" {
+		return errors.New("missing blog name")
+	}
+
+	return nil
+}
+
+func (config *ViewConfig) Do(accessToken string) (*TistoryPost, error) {
 	query := url.Values{}
 	query.Add("access_token", accessToken)
-	query.Add("blogName", blogName)
-	query.Add("postId", postID)
+	query.Add("blogName", config.BlogName)
+	query.Add("postId", config.PostID)
 	query.Add("output", "json")
 
 	resp, err := http.Get("https://www.tistory.com/apis/post/read?" + query.Encode())
@@ -286,7 +316,8 @@ func (c *EditConfig) Parse(args []string) error {
 }
 
 func (config *EditConfig) Do(accessToken string) error {
-	post, err := FindPost(accessToken, config.BlogName, config.PostID)
+	view := ViewConfig{BlogName: config.BlogName, PostID: config.PostID}
+	post, err := view.Do(accessToken)
 	if err != nil {
 		return err
 	}
