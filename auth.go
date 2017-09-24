@@ -46,12 +46,11 @@ type InitConfig struct {
 	RedirectPort int
 	RedirectPath string
 	ClientID     string
-	ClientSecret string
 	AccessToken  string
 }
 
 func (c *InitConfig) Load() error {
-	confFile := filepath.Join(filepath.Dir(os.Args[0]), "conf.yml")
+	confFile := filepath.Join(filepath.Dir(os.Args[0]), "story.conf")
 	f, err := os.Open(confFile)
 	if err != nil {
 		return err
@@ -62,7 +61,7 @@ func (c *InitConfig) Load() error {
 }
 
 func (c *InitConfig) Save() error {
-	confFile := filepath.Join(filepath.Dir(os.Args[0]), "conf.yml")
+	confFile := filepath.Join(filepath.Dir(os.Args[0]), "story.conf")
 	f, err := os.Create(confFile)
 	if err != nil {
 		return err

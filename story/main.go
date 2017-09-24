@@ -45,15 +45,7 @@ func main() {
 			}
 		}
 
-		for {
-			fmt.Print("Client Secret: ")
-			fmt.Scanf("%s\n", &config.ClientSecret)
-
-			if config.ClientSecret != "" {
-				break
-			}
-		}
-
+		// authorize your client ID and save
 		if err := config.Authorize(); err != nil {
 			log.Fatalln(err)
 			return
