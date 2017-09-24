@@ -24,10 +24,21 @@ You must run `story init` to setup your tistory account. It configures your envi
 
 ## Usage
 
-- Get your blog information
+### Command
+```
+story <command> [options...]
+  story init
+  story auth
+  story info
+  story show
+  story edit
+  story post
+```
 
-        story info -blog <blog name>
+### Get your blog information
 
-- Get single blog post
+    story info -blog <blog name>
 
-        story show -blog <blog name> <post id>
+### Get single blog post
+
+    story show -blog <blog name> <post id>
